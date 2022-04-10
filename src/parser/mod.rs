@@ -30,7 +30,8 @@ fn test_basic() {
             "",
             SqlStatement::Select(Select {
                 table: "y".to_owned(),
-                fields: vec!("x".to_owned())
+                fields: vec!("x".to_owned()),
+                conditions: vec![],
             })
         ))
     );

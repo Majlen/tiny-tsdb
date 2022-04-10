@@ -1,5 +1,6 @@
+use nom::branch::alt;
 use nom::bytes::complete::{tag, tag_no_case};
-use nom::character::complete::{alpha1, alphanumeric0, multispace0, multispace1};
+use nom::character::complete::{alpha1, alphanumeric0, digit1, multispace0, multispace1};
 use nom::combinator::{opt, recognize};
 use nom::multi::many1;
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
@@ -21,7 +22,7 @@ pub fn insert_parser(input: &str) -> IResult<&str, Insert> {
         multispace1,
         tag_no_case("values"),
         multispace1,
-        field_parser,
+        value_parser,
     ))(input)?;
     if fields.len() != values.len() {
         return Err(nom::Err::Error(nom::error::ParseError::from_error_kind(input, nom::error::ErrorKind::LengthValue)))
@@ -45,6 +46,21 @@ fn field_parser(input: &str) -> IResult<&str, Vec<&str>> {
         tag("("),
         many1(terminated(
             recognize(pair(alpha1, alphanumeric0)),
+            opt(tuple((multispace0, tag(","), multispace0))),
+        )),
+        tag(")"),
+    )(input)?;
+    Ok((unparsed, fields))
+}
+
+fn value_parser(input: &str) -> IResult<&str, Vec<&str>> {
+    let (unparsed, fields) = delimited(
+        tag("("),
+        many1(terminated(
+            alt((
+                delimited(tag("'"), recognize(pair(alpha1, alphanumeric0)), tag("'")),
+                digit1,
+            )),
             opt(tuple((multispace0, tag(","), multispace0))),
         )),
         tag(")"),

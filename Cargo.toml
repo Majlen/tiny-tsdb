@@ -7,6 +7,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1"
+clap = { version = "3.1", features = ["derive"] }
 nom = "7"
-rocksdb = { version = "0.17.0", default-features = false, features = ["zstd"] }
+rocksdb = { version = "0.18.0", default-features = false, features = ["zstd"] }
 rustyline = "9"
