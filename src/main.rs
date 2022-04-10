@@ -18,7 +18,7 @@ struct Args {
     database_dir: String,
 }
 
-fn testing_stuff(db: &db::Database) -> Result<()> {
+fn testing_stuff(db: &impl db::DB) -> Result<()> {
     let time = SystemTime::now();
     let dp = db::datapoint::Datapoint {
         metric: "test".to_owned(),
@@ -57,7 +57,7 @@ fn testing_stuff(db: &db::Database) -> Result<()> {
     Ok(())
 }
 
-fn run_cmd(sql: SqlStatement, db: &db::Database) -> Result<()> {
+fn run_cmd(sql: SqlStatement, db: &impl db::DB) -> Result<()> {
     use parser::select::Operator;
     match sql {
         SqlStatement::Select(s) => {
@@ -123,7 +123,7 @@ fn run_cmd(sql: SqlStatement, db: &db::Database) -> Result<()> {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let db = db::Database::new(&args.database_dir)?;
+    let db = db::rocksdb::RocksDB::new(&args.database_dir)?;
 
     let mut editor = Editor::<()>::new();
     loop {

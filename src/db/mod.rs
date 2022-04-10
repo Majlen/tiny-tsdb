@@ -1,5 +1,4 @@
 use anyhow::Result;
-use rocksdb::{DBCompressionType, Options, DB};
 use std::cmp;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -8,30 +7,17 @@ use std::str;
 use std::time::{Duration, SystemTime};
 
 pub mod datapoint;
+pub mod rocksdb;
 
 pub const MAX_METRIC_ID_KEY: &str = "###INTERNAL_MAX_METRIC";
 const SECS_IN_MINUTE: u64 = 60;
 
-pub struct Database {
-    db: DB,
-}
-
-impl Database {
-    pub fn new(path: &str) -> Result<Database> {
-        let mut options = Options::default();
-        options.set_compression_type(DBCompressionType::Zstd);
-        options.create_if_missing(true);
-        let db = DB::open(&options, path)?;
-        Ok(Database { db: db })
-    }
-
-    pub fn put(&self, key: &str, val: &[u8]) -> Result<()> {
-        self.db.put(key, val)?;
-        Ok(())
-    }
+pub trait DB {
+    fn put(&self, key: &str, val: &[u8]) -> Result<()>;
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>>;
 
     fn get_id(&self, key: &str) -> Result<Option<u64>> {
-        let value = self.db.get(key)?;
+        let value = self.get(key)?;
         match value {
             Some(vector) => return Ok(Some(u64::from_le_bytes(vector[0..8].try_into()?))),
             None => return Ok(None),
@@ -67,7 +53,8 @@ impl Database {
         Ok((time_bucket, offset))
     }
 
-    fn format_data(data: Vec<u8>, value: f64, offset: u64) -> Vec<u8> {
+    fn format_data(data: Option<Vec<u8>>, value: f64, offset: u64) -> Vec<u8> {
+        let data = data.unwrap_or(vec![0; 8]);
         let mut outdata: Vec<u8> = vec![0; cmp::max(data.len() + 8, 16)];
         if data.len() >= 8 {
             outdata[0..8].copy_from_slice(&data[0..8]);
@@ -141,27 +128,19 @@ impl Database {
         output
     }
 
-    pub fn put_datapoint(&self, datapoint: datapoint::Datapoint) -> Result<()> {
+    fn put_datapoint(&self, datapoint: datapoint::Datapoint) -> Result<()> {
         let metakey = datapoint.to_key_string();
-        let id = self.get_id_or_register(metakey.as_ref())?;
+        let id = self.get_id_or_register(&metakey)?;
 
         let (time_bucket, offset) = self.select_time_bucket_and_offset(datapoint.time)?;
         let datakey = format!("{}##{}", time_bucket, id);
-        let mut datavalue = self.get(datakey.as_ref())?;
-        datavalue = Database::format_data(datavalue, datapoint.value, offset);
-        self.put(datakey.as_ref(), &datavalue)?;
+        let datavalue = self.get(&datakey)?;
+        let data = Self::format_data(datavalue, datapoint.value, offset);
+        self.put(&datakey, &data)?;
         Ok(())
     }
 
-    pub fn get(&self, key: &str) -> Result<Vec<u8>> {
-        let option = self.db.get(key)?;
-        match option {
-            Some(vector) => return Ok(vector),
-            None => return Ok(vec![]),
-        }
-    }
-
-    pub fn get_datapoints_in_bucket(
+    fn get_datapoints_in_bucket(
         &self,
         metric: &str,
         tags: &HashMap<String, String>,
@@ -173,19 +152,19 @@ impl Database {
             .as_secs();
         time = (time / SECS_IN_MINUTE) * SECS_IN_MINUTE;
         let key = datapoint::Datapoint::key_string(metric, tags);
-        let id_opt = self.get_id(key.as_ref())?;
+        let id_opt = self.get_id(&key)?;
 
         match id_opt {
             Some(id) => {
-                let points = self.db.get(format!("{}##{}", time, id))?;
+                let points = self.get(&format!("{}##{}", time, id))?;
                 let system_time_bucket = SystemTime::UNIX_EPOCH.add(Duration::new(time, 0));
-                return Ok(Database::parse_data(points, metric, tags, system_time_bucket));
+                return Ok(Self::parse_data(points, metric, tags, system_time_bucket));
             },
             None => return Ok(vec![]),
         }
     }
 
-    pub fn get_datapoints_exact(
+    fn get_datapoints_exact(
         &self,
         metric: &str,
         tags: &HashMap<String, String>,
